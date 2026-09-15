@@ -4,4 +4,12 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "gpytorch>=1.15.2",
+    "matplotlib>=3.11.0",
+    "numpy>=2.4.6",
+    "scipy>=1.17.1",
+    "torch>=2.12.0",
+]
+
+# For a system with CUDA https://docs.astral.sh/uv/guides/integration/pytorch/
