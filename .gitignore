@@ -11,3 +11,9 @@ wheels/
 
 # Remove Figures
 figures/
+
+# Remove temp
+temp/
+
+# MAC related
+.DS_Store
