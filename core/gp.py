@@ -870,6 +870,75 @@ class PrefGP_LA(PrefGP):
         return f_map, covariance_map, Lambda
 
     @torch.inference_mode()
+    def inference_orig(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Run the original Laplace Newton solver on the current observations.
+
+        Uses full Newton steps and checks the maximum coordinate change after
+        applying each update. Unlike ``inference``, this method has no line
+        search, Newton-decrement stopping test, or additional Hessian jitter.
+        The configured iteration limit and threshold are used (defaults: 100
+        and 1e-5, as in the original).
+
+        The current unique-input representation, prior stabilization, and
+        derivative helpers are retained. Returns the same ``(f_map,
+        covariance_map, Lambda)`` shapes, device, and working dtype as
+        ``inference``. Invalid/divergent updates and iteration exhaustion raise
+        ``RuntimeError`` rather than returning the original scalar NaNs or
+        silently accepting an unconverged result.
+        """
+        if self.X_unique is None or self.W is None or self.K_unique_inv is None:
+            raise RuntimeError("Call update_observations before finding the MAP.")
+
+        device = self.K_unique_inv.device
+        source_dtype = self.K_unique_inv.dtype
+        work_dtype = source_dtype
+        if source_dtype in (torch.float16, torch.bfloat16, torch.float32) and device.type != "mps":
+            work_dtype = torch.float64
+
+        W = self.W.to(device=device, dtype=work_dtype)
+        precision = self.K_unique_inv.to(dtype=work_dtype)
+        scale = self._pairwise_scale()
+        f_map = torch.zeros(W.shape[1], dtype=work_dtype, device=device)
+
+        for _ in range(self._newton_iter_num):
+            z = (W @ f_map) / scale
+            inverse_mills_ratio = self._inverse_mills_ratio(z)
+            gradient = self._objective_gradient(f_map, W, inverse_mills_ratio)
+            Lambda = self._objective_lambda(z, inverse_mills_ratio, W)
+            hessian = precision + Lambda
+
+            update = torch.linalg.solve(hessian, gradient)
+            candidate = f_map - update
+            if not torch.isfinite(candidate).all():
+                raise RuntimeError("Original Newton solver produced non-finite utilities.")
+
+            converged = (
+                torch.max(torch.abs(candidate - f_map)).item()
+                <= self._newton_threshold
+            )
+            f_map = candidate
+            if converged:
+                break
+
+            # Preserve the original solver's divergence guard, with API-safe
+            # error handling instead of a tuple of scalar NaNs.
+            if torch.any(torch.abs(f_map) > 5.0).item():
+                raise RuntimeError("Original Newton solver exceeded the utility bound of 5.")
+        else:
+            raise RuntimeError(
+                "MAP optimization did not converge within "
+                f"{self._newton_iter_num} iterations."
+            )
+
+        z = (W @ f_map) / scale
+        inverse_mills_ratio = self._inverse_mills_ratio(z)
+        Lambda = self._objective_lambda(z, inverse_mills_ratio, W)
+        hessian = precision + Lambda
+        covariance_map = torch.linalg.inv(hessian)
+
+        return f_map, covariance_map, Lambda
+
+    @torch.inference_mode()
     def affine_probit_likelihood(self, 
                                  f_unique: torch.Tensor,
                                  W: torch.Tensor) -> torch.Tensor:
