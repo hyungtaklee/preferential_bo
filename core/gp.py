@@ -679,7 +679,7 @@ class PrefGP_LA(PrefGP):
         if not X_test.is_floating_point() or not torch.isfinite(X_test).all():
             raise ValueError("X_test must contain finite floating-point values.")
 
-        _, covariance_map, _ = self.inference()
+        _, covariance_map, _ = self.inference_orig()
         work_dtype = covariance_map.dtype
         X_test = X_test.to(dtype=self.X_unique.dtype)
         K_unique_test = self.kernel(self.X_unique, X_test).to(dtype=work_dtype)
@@ -1236,7 +1236,7 @@ class PrefGP_LA(PrefGP):
             if not math.isfinite(strength) or strength <= 0.0:
                 raise ValueError("strength must be positive and finite, or None.")
 
-        f_map, _, _ = self.inference()
+        f_map, _, _ = self.inference_orig()
         work_dtype = f_map.dtype
         K_unique_test = self.kernel(
             self.X_unique,
